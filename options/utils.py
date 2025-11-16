@@ -236,3 +236,148 @@ def generate_strategy_id() -> str:
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     random_suffix = random.randint(1000, 9999)
     return f"STR_{timestamp}_{random_suffix}"
+
+
+# Expiry date utility functions
+
+def get_expiry_date(expiry_type: str = "current_week") -> str:
+    """Get expiry date based on type.
+    
+    Args:
+        expiry_type: One of:
+            - "current_week": Current week Thursday
+            - "next_week": Next week Thursday  
+            - "current_month": Last Thursday of current month
+            - "next_month": Last Thursday of next month
+            - "YYYY-MM-DD": Specific date
+            
+    Returns:
+        Date string in YYYY-MM-DD format
+    """
+    from datetime import datetime, timedelta
+    from calendar import monthrange
+    
+    today = datetime.now().date()
+    
+    # If specific date provided, validate and return
+    if expiry_type not in ["current_week", "next_week", "current_month", "next_month"]:
+        try:
+            # Validate date format
+            datetime.strptime(expiry_type, "%Y-%m-%d")
+            return expiry_type
+        except ValueError:
+            raise ValueError(f"Invalid expiry_type: {expiry_type}. Use format YYYY-MM-DD")
+    
+    if expiry_type == "current_week":
+        # Find this week's Thursday
+        days_until_thursday = (3 - today.weekday()) % 7
+        if days_until_thursday == 0 and today.weekday() > 3:
+            # If today is after Thursday, get next Thursday
+            days_until_thursday = 7
+        expiry = today + timedelta(days=days_until_thursday)
+        return expiry.strftime("%Y-%m-%d")
+    
+    elif expiry_type == "next_week":
+        # Find next week's Thursday
+        days_until_thursday = (3 - today.weekday()) % 7
+        if days_until_thursday == 0:
+            days_until_thursday = 7
+        else:
+            days_until_thursday += 7
+        expiry = today + timedelta(days=days_until_thursday)
+        return expiry.strftime("%Y-%m-%d")
+    
+    elif expiry_type == "current_month":
+        # Last Thursday of current month
+        year = today.year
+        month = today.month
+        last_day = monthrange(year, month)[1]
+        last_date = datetime(year, month, last_day).date()
+        
+        # Find last Thursday
+        days_back = (last_date.weekday() - 3) % 7
+        last_thursday = last_date - timedelta(days=days_back)
+        return last_thursday.strftime("%Y-%m-%d")
+    
+    elif expiry_type == "next_month":
+        # Last Thursday of next month
+        year = today.year
+        month = today.month + 1
+        if month > 12:
+            month = 1
+            year += 1
+        
+        last_day = monthrange(year, month)[1]
+        last_date = datetime(year, month, last_day).date()
+        
+        # Find last Thursday
+        days_back = (last_date.weekday() - 3) % 7
+        last_thursday = last_date - timedelta(days=days_back)
+        return last_thursday.strftime("%Y-%m-%d")
+
+
+def format_option_symbol(
+    symbol: str,
+    expiry_date: str,
+    strike: int,
+    option_type: str
+) -> str:
+    """Format option symbol for Upstox.
+    
+    Args:
+        symbol: Underlying symbol (NIFTY, BANKNIFTY, FINNIFTY)
+        expiry_date: Expiry in YYYY-MM-DD format
+        strike: Strike price
+        option_type: CE or PE
+        
+    Returns:
+        Formatted option symbol
+        
+    Example:
+        format_option_symbol("NIFTY", "2025-11-21", 24500, "CE")
+        -> "NIFTY25NOV24500CE" or "NSE_FO|45123" (depending on Upstox format)
+    """
+    from datetime import datetime
+    
+    # Parse expiry date
+    expiry_dt = datetime.strptime(expiry_date, "%Y-%m-%d")
+    
+    # Format: SYMBOL[YY][MON][STRIKE][CE/PE]
+    # Example: NIFTY25NOV24500CE
+    year_str = expiry_dt.strftime("%y")
+    month_str = expiry_dt.strftime("%b").upper()
+    
+    option_symbol = f"{symbol}{year_str}{month_str}{strike}{option_type}"
+    
+    return option_symbol
+
+
+def validate_expiry_date(expiry_date: str) -> bool:
+    """Validate if expiry date is a valid Thursday and not in past.
+    
+    Args:
+        expiry_date: Date string in YYYY-MM-DD format
+        
+    Returns:
+        True if valid, raises ValueError if invalid
+    """
+    from datetime import datetime
+    
+    try:
+        expiry_dt = datetime.strptime(expiry_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise ValueError(f"Invalid date format: {expiry_date}. Use YYYY-MM-DD")
+    
+    # Check if date is in past
+    today = datetime.now().date()
+    if expiry_dt < today:
+        raise ValueError(f"Expiry date {expiry_date} is in the past")
+    
+    # Check if it's a Thursday (weekday 3)
+    if expiry_dt.weekday() != 3:
+        # Warning but don't fail - some special expiries might not be Thursday
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Expiry date {expiry_date} is not a Thursday")
+    
+    return True
