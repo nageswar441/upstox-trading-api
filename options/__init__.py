@@ -19,6 +19,7 @@ from .models import (
     OptionsOrderRequest,
     OptionsOrderResponse
 )
+from .position_monitor import PositionMonitor, MonitorStatus, get_monitor
 
 __version__ = "1.0.0"
 
@@ -30,5 +31,8 @@ __all__ = [
     "Validity",
     "PriceConfig",
     "OptionsOrderRequest",
-    "OptionsOrderResponse"
+    "OptionsOrderResponse",
+    "PositionMonitor",
+    "MonitorStatus",
+    "get_monitor"
 ]
