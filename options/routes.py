@@ -9,6 +9,7 @@ import logging
 
 from .models import OptionsOrderRequest, OptionsOrderResponse
 from .service import OptionsOrderService
+from .position_monitor import get_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -211,4 +212,178 @@ async def square_off_today_positions():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to square off positions: {str(e)}"
+        )
+
+
+
+# ==================== Position Monitor Endpoints ====================
+
+@router.post(
+    "/monitor/start",
+    status_code=status.HTTP_200_OK,
+    summary="Start Position Monitoring",
+    description="Start continuous monitoring of intraday positions with auto square-off at 2% P&L threshold"
+)
+async def start_position_monitor(check_interval: int = 5):
+    """Start the position monitor.
+    
+    Args:
+        check_interval: How often to check positions (seconds). Default: 5
+    
+    Returns:
+        Confirmation message and monitor status
+    """
+    try:
+        monitor = get_monitor()
+        
+        if monitor.status.value == "RUNNING":
+            return {
+                "success": False,
+                "message": "Monitor is already running",
+                "status": monitor.status.value
+            }
+        
+        await monitor.start_monitoring(check_interval)
+        
+        logger.info(f"Position monitor started with {check_interval}s check interval")
+        
+        return {
+            "success": True,
+            "message": f"Position monitor started successfully",
+            "status": monitor.status.value,
+            "check_interval": check_interval,
+            "thresholds": {
+                "profit": f"{monitor.profit_threshold}%",
+                "loss": f"{monitor.loss_threshold}%"
+            }
+        }
+    
+    except Exception as e:
+        logger.error(f"Error starting position monitor: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start position monitor: {str(e)}"
+        )
+
+
+@router.post(
+    "/monitor/stop",
+    status_code=status.HTTP_200_OK,
+    summary="Stop Position Monitoring",
+    description="Stop the position monitor and get final statistics"
+)
+async def stop_position_monitor():
+    """Stop the position monitor.
+    
+    Returns:
+        Final monitor statistics
+    """
+    try:
+        monitor = get_monitor()
+        
+        if monitor.status.value == "STOPPED":
+            return {
+                "success": False,
+                "message": "Monitor is not running",
+                "status": monitor.status.value
+            }
+        
+        stats = await monitor.stop_monitoring()
+        
+        logger.info("Position monitor stopped")
+        
+        return {
+            "success": True,
+            "message": "Position monitor stopped successfully",
+            "status": monitor.status.value,
+            "stats": stats
+        }
+    
+    except Exception as e:
+        logger.error(f"Error stopping position monitor: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to stop position monitor: {str(e)}"
+        )
+
+
+@router.get(
+    "/monitor/status",
+    status_code=status.HTTP_200_OK,
+    summary="Get Monitor Status",
+    description="Get current status and statistics of the position monitor"
+)
+async def get_monitor_status():
+    """Get monitor status and statistics.
+    
+    Returns:
+        Monitor status, thresholds, and statistics
+    """
+    try:
+        monitor = get_monitor()
+        stats = monitor.get_stats()
+        
+        return {
+            "success": True,
+            "status": monitor.status.value,
+            "thresholds": {
+                "profit": f"{monitor.profit_threshold}%",
+                "loss": f"{monitor.loss_threshold}%"
+            },
+            "stats": stats
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting monitor status: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get monitor status: {str(e)}"
+        )
+
+
+@router.post(
+    "/monitor/set-threshold",
+    status_code=status.HTTP_200_OK,
+    summary="Set Monitor Thresholds",
+    description="Update profit and loss thresholds for auto square-off"
+)
+async def set_monitor_thresholds(profit_percent: float = 2.0, loss_percent: float = 2.0):
+    """Set custom thresholds for the monitor.
+    
+    Args:
+        profit_percent: Profit threshold percentage (default 2%)
+        loss_percent: Loss threshold percentage (default 2%)
+    
+    Returns:
+        Confirmation message with new thresholds
+    """
+    try:
+        if profit_percent <= 0 or loss_percent <= 0:
+            raise ValueError("Thresholds must be positive numbers")
+        
+        monitor = get_monitor()
+        monitor.set_thresholds(profit_percent, loss_percent)
+        
+        logger.info(f"Monitor thresholds updated: Profit={profit_percent}%, Loss={loss_percent}%")
+        
+        return {
+            "success": True,
+            "message": "Thresholds updated successfully",
+            "thresholds": {
+                "profit": f"{profit_percent}%",
+                "loss": f"{loss_percent}%"
+            }
+        }
+    
+    except ValueError as e:
+        logger.error(f"Validation error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error setting monitor thresholds: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to set monitor thresholds: {str(e)}"
         )
