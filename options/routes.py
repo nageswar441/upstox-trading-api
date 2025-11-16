@@ -453,3 +453,68 @@ async def execute_opening_otm_strategy(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to execute strategy: {str(e)}"
         )
+
+
+@router.post(
+    "/auto-trade/option-chain-strategy",
+    status_code=status.HTTP_200_OK,
+    summary="Execute Option Chain Pattern Strategy",
+    description="Automated trading based on option chain patterns with priority execution"
+)
+async def execute_option_chain_strategy(
+    symbol: str = "NIFTY",
+    quantity_lots: int = 1,
+    target_profit_percent: float = 5.0,
+    price_tolerance: float = 0.5
+):
+    """Execute option chain pattern strategy.
+    
+    Pattern Priority (executes ONLY ONE):
+    1. CE Bullish: 4 OTM CEs with open==low → Buy 4th OTM CE
+    2. PE Bullish: 4 OTM PEs with open==low → Buy 4th OTM PE  
+    3. CE Bearish: 4 nearest CEs with open==high → Buy PE at 4th strike
+    4. PE Bearish: 4 nearest PEs with open==high → Buy CE at 4th strike
+    
+    Timing:
+    - Monitors: 9:15:00 - 9:16:00 AM (60 seconds)
+    - Executes: 9:16:10 - 9:16:20 AM (10 seconds)
+    
+    Args:
+        symbol: Trading symbol (NIFTY, BANKNIFTY, FINNIFTY)
+        quantity_lots: Number of lots to execute
+        target_profit_percent: Profit target percentage (default 5%)
+        price_tolerance: Tolerance for open==low/high checks (default 0.5)
+    
+    Returns:
+        Strategy execution result
+    """
+    try:
+        from .option_chain_strategy import get_strategy
+        from auth.dependencies import get_upstox_client
+        
+        logger.info(f"Executing option chain strategy: {symbol}, lots={quantity_lots}")
+        
+        upstox_client = get_upstox_client()
+        strategy = get_strategy(upstox_client)
+        
+        result = await strategy.execute_strategy(
+            symbol=symbol,
+            quantity_lots=quantity_lots,
+            target_profit_percent=target_profit_percent,
+            price_tolerance=price_tolerance
+        )
+        
+        return result
+        
+    except ValueError as e:
+        logger.error(f"Validation error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error executing option chain strategy: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to execute strategy: {str(e)}"
+        )
