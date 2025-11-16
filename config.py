@@ -58,6 +58,7 @@ try:
 except ValueError as e:
     print(f"⚠️  {str(e)}")
     print("Please ensure all required environment variables are set in .env file")
+    print("Run: python profile_manager.py dev")
     raise
 
 # API URLs
@@ -70,6 +71,7 @@ UPSTOX_WEBSOCKET_URL = get_optional_env(
 # Internal API Configuration (Required)
 try:
     INTERNAL_API_KEY = get_required_env("INTERNAL_API_KEY")
+    print("✅ Internal API key loaded")
 except ValueError:
     print("⚠️  INTERNAL_API_KEY not set. Generating a random key...")
     import secrets
@@ -94,3 +96,4 @@ if "*" in ALLOWED_ORIGINS:
     print("   For production, specify exact origins in ALLOWED_ORIGINS environment variable")
 
 print(f"✅ Configuration loaded. CORS allowed origins: {ALLOWED_ORIGINS}")
+print(f"✅ Environment: {get_optional_env('APP_ENV', 'development')}")
