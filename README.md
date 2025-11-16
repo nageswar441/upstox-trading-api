@@ -352,4 +352,27 @@ MIT License - see [LICENSE](LICENSE) file
 
 ---
 
+# 1. Check profile manager exists
+ls -l profile_manager.py
+
+# 2. Check environment files exist
+ls -la .env.dev .env.staging .env.prod
+
+# 3. Check active profile
+python profile_manager.py status
+
+# 4. Verify Python modules
+python -c "from config import UPSTOX_API_TOKEN; print('✅ Config OK')"
+python -c "from models import SubscriptionResponse; print('✅ Models OK')"
+
+# 5. Check dependencies
+pip list | grep -E "fastapi|uvicorn|slowapi|httpx"
+
+# 6. Test server starts
+python -m uvicorn main:app --reload &
+sleep 3
+curl http://localhost:8000/health
+pkill -f uvicorn
+
+
 **Made with ❤️ for Indian Traders | ⭐ Star this repo if helpful!**
