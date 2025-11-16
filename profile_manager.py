@@ -1,17 +1,7 @@
 #!/usr/bin/env python3
 """
 Environment Profile Manager for Upstox Trading API
-
-This script helps switch between different environment profiles:
-- dev (development)
-- staging
-- prod (production)
-
-Usage:
-    python profile_manager.py [profile]
-    python profile_manager.py dev
-    python profile_manager.py staging
-    python profile_manager.py prod
+Usage: python profile_manager.py [dev|staging|prod|create|status]
 """
 
 import os
@@ -55,15 +45,7 @@ class ProfileManager:
         return "unknown"
     
     def switch_profile(self, profile: str) -> bool:
-        """
-        Switch to specified environment profile
-        
-        Args:
-            profile: Target profile (dev, staging, prod)
-            
-        Returns:
-            True if successful, False otherwise
-        """
+        """Switch to specified environment profile"""
         if profile not in self.VALID_PROFILES:
             print(f"❌ Invalid profile: {profile}")
             print(f"   Valid profiles: {', '.join(self.VALID_PROFILES)}")
@@ -75,6 +57,7 @@ class ProfileManager:
         if not source_file.exists():
             print(f"❌ Profile file not found: {source_file}")
             print(f"   Please create .env.{profile} file first")
+            print(f"   Run: python profile_manager.py create")
             return False
         
         try:
@@ -99,9 +82,9 @@ class ProfileManager:
     
     def show_status(self):
         """Show current profile status"""
-        print("\n" + "="*50)
-        print("   UPSTOX TRADING API - PROFILE STATUS")
-        print("="*50)
+        print("\n" + "="*60)
+        print("   UPSTOX TRADING API - ENVIRONMENT PROFILE STATUS")
+        print("="*60)
         print(f"📍 Current Profile: {self.current_profile}")
         print(f"📂 Root Directory: {self.root_dir}")
         print()
@@ -115,7 +98,7 @@ class ProfileManager:
             print(f"  - {profile:8} : {status}{active}")
         
         print()
-        print("="*50)
+        print("="*60)
     
     def create_profile_files(self):
         """Create missing profile files from template"""
@@ -123,6 +106,7 @@ class ProfileManager:
         
         if not example_file.exists():
             print("❌ .env.example file not found")
+            print("   Please ensure .env.example exists in the root directory")
             return
         
         created = []
@@ -138,8 +122,9 @@ class ProfileManager:
                     print(f"❌ Error creating {profile_file}: {e}")
         
         if created:
-            print(f"\n📝 Created {len(created)} profile file(s)")
-            print("   Please edit these files and add your credentials")
+            print(f"\n📝 Created {len(created)} profile file(s): {', '.join(created)}")
+            print("   ⚠️  IMPORTANT: Edit these files and add your actual credentials")
+            print(f"   Next step: python profile_manager.py dev")
         else:
             print("ℹ️  All profile files already exist")
 
@@ -150,14 +135,18 @@ def main():
     # No arguments - show status and help
     if len(sys.argv) == 1:
         manager.show_status()
-        print("\nUsage:")
-        print("  python profile_manager.py <profile>")
-        print("\nExamples:")
+        print("\n📖 Usage:")
+        print("  python profile_manager.py <command>")
+        print("\n🔧 Commands:")
+        print("  dev       - Switch to development environment")
+        print("  staging   - Switch to staging environment")
+        print("  prod      - Switch to production environment")
+        print("  status    - Show current profile status")
+        print("  create    - Create missing profile files from template")
+        print("\n💡 Examples:")
+        print("  python profile_manager.py create    # First time setup")
         print("  python profile_manager.py dev       # Switch to development")
-        print("  python profile_manager.py staging   # Switch to staging")
-        print("  python profile_manager.py prod      # Switch to production")
-        print("  python profile_manager.py status    # Show current status")
-        print("  python profile_manager.py create    # Create missing profile files")
+        print("  python profile_manager.py status    # Check current profile")
         return
     
     command = sys.argv[1].lower()
@@ -170,17 +159,22 @@ def main():
         # Confirmation for production
         if command == 'prod':
             print("⚠️  WARNING: Switching to PRODUCTION environment!")
-            response = input("   Are you sure? (yes/no): ")
+            print("   This will use live trading credentials.")
+            response = input("   Are you sure? Type 'yes' to confirm: ")
             if response.lower() != 'yes':
                 print("❌ Cancelled")
                 return
         
         if manager.switch_profile(command):
             print(f"\n🚀 To start the server with {command} profile:")
-            print(f"   python -m uvicorn main:app --reload" if command == 'dev' else f"   python -m uvicorn main:app")
+            if command == 'dev':
+                print(f"   python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000")
+            else:
+                print(f"   python -m uvicorn main:app --host 0.0.0.0 --port 8000")
     else:
         print(f"❌ Unknown command: {command}")
         print(f"   Valid commands: {', '.join(manager.VALID_PROFILES + ['status', 'create'])}")
+        print(f"   Run 'python profile_manager.py' for help")
 
 
 if __name__ == "__main__":
