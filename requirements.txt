@@ -5,3 +5,14 @@ python-dotenv~=1.0.0
 websockets~=12.0
 pydantic~=2.5.0
 slowapi~=0.1.9
+
+# JWT Authentication Dependencies
+python-jose[cryptography]>=3.3.0
+python-multipart>=0.0.6
+passlib[bcrypt]>=1.7.4
+
+# Upstox SDK
+upstox-python-sdk>=2.0.0
+
+# Additional Security
+cryptography>=41.0.0
