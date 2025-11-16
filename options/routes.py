@@ -387,3 +387,69 @@ async def set_monitor_thresholds(profit_percent: float = 2.0, loss_percent: floa
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to set monitor thresholds: {str(e)}"
         )
+
+
+@router.post(
+    "/auto-trade/opening-otm-strategy",
+    status_code=status.HTTP_200_OK,
+    summary="Execute Opening OTM Strategy",
+    description="Automated trading based on market opening conditions with configurable lot quantity"
+)
+async def execute_opening_otm_strategy(
+    symbol: str = "NIFTY",
+    quantity_lots: int = 1,
+    otm_range: int = 500,
+    target_profit_percent: float = 10.0,
+    price_tolerance: float = 2.0
+):
+    """Execute opening OTM strategy with configurable parameters.
+    
+    This strategy:
+    - Triggers at 9:15:10 AM and monitors market until 9:15:50 AM
+    - BEARISH signal: open price == high price → buys PE option
+    - BULLISH signal: open price == low price → buys CE option
+    - Selects highest OI among OTM strikes within ±otm_range points
+    - Automatically places 10% profit target order
+    - Executes orders between 9:15:50 - 9:16:10 AM
+    
+    Args:
+        symbol: Trading symbol (NIFTY, BANKNIFTY, FINNIFTY)
+        quantity_lots: Number of lots to execute (multiplies lot size)
+        otm_range: OTM strike search range in points (default: 500)
+        target_profit_percent: Profit target percentage (default: 10%)
+        price_tolerance: Price equality tolerance in points (default: 2)
+        
+    Returns:
+        Strategy execution result with order details
+    """
+    try:
+        from .opening_otm_strategy import get_strategy
+        from auth.dependencies import get_upstox_client
+        
+        logger.info(f"Executing opening OTM strategy: {symbol}, lots={quantity_lots}")
+        
+        upstox_client = get_upstox_client()
+        strategy = get_strategy(upstox_client)
+        
+        result = await strategy.execute_strategy(
+            symbol=symbol,
+            quantity_lots=quantity_lots,
+            otm_range=otm_range,
+            target_profit_percent=target_profit_percent,
+            price_tolerance=price_tolerance
+        )
+        
+        return result
+        
+    except ValueError as e:
+        logger.error(f"Validation error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error executing opening strategy: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to execute strategy: {str(e)}"
+        )
