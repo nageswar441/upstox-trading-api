@@ -124,3 +124,91 @@ async def get_supported_symbols():
             for symbol, lot_size in LOT_SIZES.items()
         ]
     }
+
+
+
+@router.post(
+    "/square-off/all",
+    status_code=status.HTTP_200_OK,
+    summary="Square Off All Options Positions",
+    description="Close all open options positions"
+)
+async def square_off_all_positions():
+    """Square off all open options positions.
+    
+    This endpoint will:
+    - Fetch all open options positions
+    - Place opposite orders to close each position
+    - Return summary of closed positions
+    
+    Returns:
+        Summary of squared off positions
+    """
+    try:
+        logger.info("Squaring off all options positions")
+        
+        result = await options_service.square_off_all_positions()
+        
+        return {
+            "success": True,
+            "message": "Successfully squared off all positions",
+            "positions_closed": result.get("positions_closed", 0),
+            "total_pnl": result.get("total_pnl", 0),
+            "details": result.get("details", [])
+        }
+    
+    except Exception as e:
+        logger.error(f"Error squaring off all positions: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to square off positions: {str(e)}"
+        )
+
+
+@router.post(
+    "/square-off/today",
+    status_code=status.HTTP_200_OK,
+    summary="Square Off Today's Options Positions",
+    description="Close all options positions opened today"
+)
+async def square_off_today_positions():
+    """Square off all options positions opened today.
+    
+    This endpoint will:
+    - Filter positions opened today
+    - Place opposite orders to close each position
+    - Return summary of closed positions
+    
+    Perfect for EOD (End of Day) square-off scenarios.
+    
+    Returns:
+        Summary of squared off positions
+    """
+    try:
+        logger.info("Squaring off today's options positions")
+        
+        result = await options_service.square_off_today_positions()
+        
+        if result.get("positions_closed", 0) == 0:
+            return {
+                "success": True,
+                "message": "No positions opened today to square off",
+                "positions_closed": 0,
+                "total_pnl": 0,
+                "details": []
+            }
+        
+        return {
+            "success": True,
+            "message": f"Successfully squared off {result.get('positions_closed', 0)} position(s) opened today",
+            "positions_closed": result.get("positions_closed", 0),
+            "total_pnl": result.get("total_pnl", 0),
+            "details": result.get("details", [])
+        }
+    
+    except Exception as e:
+        logger.error(f"Error squaring off today's positions: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to square off positions: {str(e)}"
+        )
