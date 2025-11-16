@@ -11,6 +11,8 @@ from typing import Optional
 from config import UPSTOX_API_TOKEN, UPSTOX_BASE_URL, INTERNAL_API_KEY, ALLOWED_ORIGINS
 from models import OrderRequest, OrderResponse, AccountInfo, MarketFeedResponse
 from webhook_handler import router as webhook_router
+from pydantic import BaseModel
+from auth.jwt_handler import jwt_handler
 from websocket_handler import router as websocket_router, manager
 
 # Configure logging (centralized)
@@ -286,6 +288,77 @@ async def get_market_quote(
         logger.error(f"Unexpected error fetching quote: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+
+
+# Pydantic model for refresh token request
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+@app.post(
+    "/api/v1/auth/refresh",
+    summary="Refresh Access Token",
+    description="Get a new access token using a valid refresh token"
+)
+@limiter.limit("10/minute")
+async def refresh_access_token(request: RefreshTokenRequest):
+    """
+    Refresh expired access token using refresh token
+    
+    Args:
+        request: RefreshTokenRequest containing refresh_token
+    
+    Returns:
+        New access token and expiration info
+    
+    Raises:
+        HTTPException: If refresh token is invalid or expired
+    """
+    try:
+        # Decode and validate refresh token
+        payload = jwt_handler.decode_token(request.refresh_token)
+        
+        # Verify it's a refresh token (not access token)
+        if not jwt_handler.verify_token_type(payload, "refresh"):
+            logger.warning("Invalid token type provided for refresh")
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid token type. Refresh token required."
+            )
+        
+        # Extract user info from refresh token
+        user_id = payload.get("sub")
+        email = payload.get("email")
+        upstox_token = payload.get("upstox_access_token")
+        
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        
+        # Generate NEW access token (refresh token stays the same)
+        new_access_token = jwt_handler.create_access_token({
+            "sub": user_id,
+            "email": email,
+            "upstox_access_token": upstox_token
+        })
+        
+        logger.info(f"Access token refreshed for user: {user_id}")
+        
+        return {
+            "access_token": new_access_token,
+            "token_type": "bearer",
+            "expires_in": 1800,  # 30 minutes in seconds
+            "message": "Access token refreshed successfully"
+        }
+        
+    except HTTPException:
+        raise
+        
+    except Exception as e:
+        logger.error(f"Token refresh failed: {str(e)}")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired refresh token"
+        )
 
 if __name__ == "__main__":
     import uvicorn
