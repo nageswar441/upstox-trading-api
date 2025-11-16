@@ -1,127 +1,204 @@
-from fastapi import APIRouter, HTTPException, Header, Request
+from fastapi import APIRouter, Request, HTTPException, Header, Depends
+from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any, List
 import logging
-from config import WEBHOOK_SECRET
-from models import WebhookPayload
+import hmac
+import hashlib
+from datetime import datetime
 
-router = APIRouter()
+from config import INTERNAL_API_KEY
+
+router = APIRouter(prefix="/webhook", tags=["Webhooks"])
 logging.basicConfig(level=logging.INFO)
 
-@router.post(
-    "/webhook/upstox",
-    summary="Receive Upstox Webhooks",
-    description="Endpoint for Upstox to send order updates, trade confirmations, etc.",
-    tags=["Webhooks"]
-)
-async def receive_webhook(request: Request, payload: WebhookPayload):
+# --- Webhook Models ---
+
+class OrderUpdateWebhook(BaseModel):
+    """Model for order update webhook from Upstox"""
+    event: str = Field(..., example="order.update", description="Event type")
+    order_id: str = Field(..., example="240101000012345", description="Upstox order ID")
+    exchange_order_id: Optional[str] = Field(None, description="Exchange order ID")
+    symbol: str = Field(..., example="NSE_EQ|INE123A01016", description="Trading symbol")
+    quantity: int = Field(..., example=10, description="Order quantity")
+    status: str = Field(..., example="complete", description="Order status")
+    order_type: str = Field(..., example="MARKET", description="Order type")
+    side: str = Field(..., example="BUY", description="BUY or SELL")
+    price: Optional[float] = Field(None, example=520.50, description="Order price")
+    average_price: Optional[float] = Field(None, example=520.35, description="Average execution price")
+    timestamp: str = Field(..., example="2025-11-16T13:30:45+05:30", description="Event timestamp")
+    product: str = Field(..., example="INTRADAY", description="Product type")
+
+class PositionUpdateWebhook(BaseModel):
+    """Model for position update webhook"""
+    event: str = Field(..., example="position.update", description="Event type")
+    symbol: str = Field(..., example="NSE_EQ|INE123A01016", description="Trading symbol")
+    quantity: int = Field(..., example=50, description="Position quantity")
+    average_price: float = Field(..., example=515.20, description="Average price")
+    unrealized_pnl: float = Field(..., example=265.00, description="Unrealized P&L")
+    realized_pnl: float = Field(..., example=0.00, description="Realized P&L")
+    timestamp: str = Field(..., example="2025-11-16T13:30:45+05:30", description="Event timestamp")
+
+class GenericWebhook(BaseModel):
+    """Generic webhook model for custom integrations"""
+    event: str = Field(..., description="Event type")
+    data: Dict[str, Any] = Field(..., description="Event data")
+    timestamp: Optional[str] = Field(None, description="Event timestamp")
+
+# --- Security: Verify webhook signature (optional but recommended) ---
+def verify_webhook_signature(payload: bytes, signature: str, secret: str) -> bool:
     """
-    Handle incoming webhooks from Upstox
-    Events: order.placed, order.completed, order.cancelled, trade.created, etc.
+    Verify HMAC signature for webhook payload
+    Usage: Pass webhook secret from Upstox/your system
+    """
+    expected_signature = hmac.new(
+        secret.encode('utf-8'),
+        payload,
+        hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(signature, expected_signature)
+
+# --- Authentication dependency ---
+def verify_api_key(x_api_key: str = Header(...)):
+    if x_api_key != INTERNAL_API_KEY:
+        logging.warning("Unauthorized webhook attempt")
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+# --- Webhook Endpoints ---
+
+@router.post(
+    "/order-update",
+    summary="Receive Order Update Webhook",
+    response_description="Acknowledgment of received order update",
+    dependencies=[Depends(verify_api_key)]
+)
+async def order_update_webhook(
+    webhook: OrderUpdateWebhook,
+    request: Request,
+    x_signature: Optional[str] = Header(None)
+):
+    """
+    Endpoint to receive order update webhooks from Upstox
+    Logs order status changes and can trigger custom logic
     """
     try:
-        # Verify webhook signature
-        signature = request.headers.get("x-webhook-signature", "")
+        # Optional: Verify signature if Upstox provides one
+        # body = await request.body()
+        # if x_signature and not verify_webhook_signature(body, x_signature, WEBHOOK_SECRET):
+        #     raise HTTPException(status_code=401, detail="Invalid signature")
         
-        if signature != WEBHOOK_SECRET:
-            logging.warning(f"⚠️ Invalid webhook signature")
-            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+        logging.info(f"Order Update Received: {webhook.order_id} - Status: {webhook.status}")
         
-        event_type = payload.event
-        event_data = payload.data
+        # Add your custom logic here:
+        # - Store in database
+        # - Send notification (email/SMS/Telegram)
+        # - Update trading strategy
+        # - Calculate P&L
+        # - Trigger next order in a strategy chain
         
-        logging.info(f"📨 Webhook received: {event_type}")
-        logging.info(f"Data: {event_data}")
+        if webhook.status == "complete":
+            logging.info(f"Order {webhook.order_id} completed at avg price: {webhook.average_price}")
+        elif webhook.status == "rejected":
+            logging.warning(f"Order {webhook.order_id} rejected")
         
-        # Process different event types
-        if event_type == "order.placed":
-            # Handle order placed event
-            order_id = event_data.get("order_id")
-            symbol = event_data.get("symbol")
-            quantity = event_data.get("quantity")
-            logging.info(f"✅ Order placed: {order_id} - {symbol} x{quantity}")
-            # Add your custom logic here: database update, notifications, etc.
-            
-        elif event_type == "order.completed":
-            # Handle order completion
-            order_id = event_data.get("order_id")
-            status = event_data.get("status")
-            logging.info(f"✅ Order completed: {order_id} - Status: {status}")
-            
-        elif event_type == "order.cancelled":
-            # Handle order cancellation
-            order_id = event_data.get("order_id")
-            reason = event_data.get("cancel_reason", "User cancelled")
-            logging.info(f"❌ Order cancelled: {order_id} - Reason: {reason}")
-            
-        elif event_type == "trade.created":
-            # Handle trade execution
-            trade_id = event_data.get("trade_id")
-            order_id = event_data.get("order_id")
-            symbol = event_data.get("symbol")
-            quantity = event_data.get("quantity")
-            price = event_data.get("price")
-            trade_type = event_data.get("trade_type", "BUY")
-            
-            logging.info(f"💰 Trade executed: {trade_id}")
-            logging.info(f"   Order ID: {order_id}")
-            logging.info(f"   Symbol: {symbol}")
-            logging.info(f"   Quantity: {quantity}")
-            logging.info(f"   Price: ₹{price}")
-            logging.info(f"   Type: {trade_type}")
-            
-            # Add your custom logic here:
-            # - Update portfolio
-            # - Calculate P&L
-            # - Send notifications
-            # - Update database
-            # - Trigger other strategies
-            
-        elif event_type == "order.rejected":
-            # Handle order rejection
-            order_id = event_data.get("order_id")
-            reason = event_data.get("rejection_reason")
-            logging.error(f"🚫 Order rejected: {order_id} - Reason: {reason}")
-            
-        elif event_type == "position.updated":
-            # Handle position updates
-            symbol = event_data.get("symbol")
-            quantity = event_data.get("quantity")
-            avg_price = event_data.get("average_price")
-            pnl = event_data.get("unrealized_pnl")
-            logging.info(f"📊 Position updated: {symbol} - Qty: {quantity}, Avg: ₹{avg_price}, P&L: ₹{pnl}")
-            
-        elif event_type == "margin.updated":
-            # Handle margin updates
-            available_margin = event_data.get("available_margin")
-            used_margin = event_data.get("used_margin")
-            logging.info(f"💳 Margin updated - Available: ₹{available_margin}, Used: ₹{used_margin}")
-            
-        else:
-            logging.warning(f"⚠️ Unknown event type: {event_type}")
-        
-        # Return success response to Upstox
         return {
             "status": "success",
-            "message": "Webhook processed successfully",
-            "event": event_type,
-            "timestamp": payload.timestamp
+            "message": "Order update received",
+            "order_id": webhook.order_id,
+            "timestamp": datetime.now().isoformat()
         }
-        
+    
     except Exception as e:
-        logging.error(f"❌ Webhook processing error: {str(e)}")
+        logging.error(f"Error processing order webhook: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post(
+    "/position-update",
+    summary="Receive Position Update Webhook",
+    response_description="Acknowledgment of received position update",
+    dependencies=[Depends(verify_api_key)]
+)
+async def position_update_webhook(
+    webhook: PositionUpdateWebhook,
+    request: Request
+):
+    """
+    Endpoint to receive position update webhooks
+    Tracks real-time P&L and position changes
+    """
+    try:
+        logging.info(f"Position Update: {webhook.symbol} - Qty: {webhook.quantity}, PnL: {webhook.unrealized_pnl}")
+        
+        # Add your custom logic:
+        # - Calculate risk metrics
+        # - Trigger stop-loss if PnL crosses threshold
+        # - Send alerts for large drawdowns
+        # - Update dashboard/analytics
+        
+        return {
+            "status": "success",
+            "message": "Position update received",
+            "symbol": webhook.symbol,
+            "pnl": webhook.unrealized_pnl
+        }
+    
+    except Exception as e:
+        logging.error(f"Error processing position webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post(
+    "/generic",
+    summary="Generic Webhook Endpoint",
+    response_description="Acknowledgment of received webhook",
+    dependencies=[Depends(verify_api_key)]
+)
+async def generic_webhook(webhook: GenericWebhook):
+    """
+    Generic webhook endpoint for custom integrations
+    Can handle any event type with flexible data structure
+    """
+    try:
+        logging.info(f"Generic Webhook Received - Event: {webhook.event}")
+        
+        # Route to specific handlers based on event type
+        if webhook.event == "market.alert":
+            # Handle market alerts
+            pass
+        elif webhook.event == "strategy.signal":
+            # Handle trading signals
+            pass
+        
+        return {
+            "status": "success",
+            "message": f"Webhook {webhook.event} processed",
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        logging.error(f"Error processing generic webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get(
-    "/webhook/test",
-    summary="Test Webhook Endpoint",
-    description="Test if webhook endpoint is accessible",
-    tags=["Webhooks"]
+    "/health",
+    summary="Webhook Health Check",
+    response_description="Health status of webhook service"
 )
-async def test_webhook():
-    """Test endpoint to verify webhook is working"""
+async def webhook_health():
+    """Health check endpoint for webhook service"""
     return {
-        "status": "success",
-        "message": "Webhook endpoint is active and ready to receive events",
-        "endpoint": "/webhook/upstox"
+        "status": "healthy",
+        "service": "webhook_handler",
+        "timestamp": datetime.now().isoformat()
     }
 
+# --- Webhook Event Storage (optional) ---
+class WebhookEvent(BaseModel):
+    """Model for storing webhook events in database"""
+    id: Optional[str] = None
+    event_type: str
+    payload: Dict[str, Any]
+    received_at: datetime
+    processed: bool = False
+    processing_error: Optional[str] = None
+
+# You can add database storage logic here
+# Example with SQLAlchemy or MongoDB to persist webhook events
