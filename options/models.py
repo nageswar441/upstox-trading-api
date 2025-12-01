@@ -54,7 +54,7 @@ class PriceConfig(BaseModel):
         description="Trigger price (required for SL/SL-M orders)"
     )
 
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def validate_prices(cls, values):
         """Validate price requirements based on order type"""
         order_type = values.get('order_type')
@@ -99,7 +99,7 @@ class OptionsOrderRequest(BaseModel):
         """Validate and uppercase symbol"""
         return v.upper().strip()
 
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def validate_option_configs(cls, values):
         """Validate price configs based on option type"""
         option_type = values.get('option_type')

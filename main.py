@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, Depends, Query
+from fastapi import FastAPI, HTTPException, Header, Depends, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -68,7 +68,7 @@ def upstox_headers() -> dict:
     """Generate headers for Upstox API requests"""
     return {
         "Authorization": f"Bearer {UPSTOX_API_TOKEN}",
-        "Api-Version": "2.0",
+        # "Api-Version": "2.0",
         "Accept": "application/json",
         "Content-Type": "application/json"
     }
@@ -95,7 +95,7 @@ def verify_api_key(x_api_key: str = Header(..., description="Internal API key fo
 
 @app.get("/")
 @limiter.limit("10/minute")
-async def root():
+async def root(request: Request):
     """
     Root endpoint - API health check
     
@@ -135,7 +135,7 @@ async def health_check():
     description="Retrieve user account information from Upstox"
 )
 @limiter.limit("30/minute")
-async def get_account_profile():
+async def get_account_profile(request: Request):
     """
     Fetch user profile from Upstox
     
@@ -145,13 +145,25 @@ async def get_account_profile():
     Raises:
         HTTPException: If API request fails
     """
-    url = f"{UPSTOX_BASE_URL}/user/profile"
+    # Explicit URL matching the Upstox API endpoint
+    url = "https://api.upstox.com/v2/user/profile"
+    
+    # Get headers with Bearer token
+    headers = upstox_headers()
+    print("************************************************")
+    print(headers)
+    print("************************************************")
+    
+    logger.info(f"Fetching user profile from Upstox: {url}")
+    logger.debug(f"Using Authorization token: {UPSTOX_API_TOKEN[:20]}...")
     
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(url, headers=upstox_headers())
+            response = await client.get(url, headers=headers)
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            logger.info("Successfully fetched user profile")
+            return result
             
     except httpx.TimeoutException:
         logger.error("Upstox API timeout while fetching profile")
@@ -181,7 +193,7 @@ async def get_account_profile():
     description="Place a new order on Upstox"
 )
 @limiter.limit("20/minute")
-async def place_order(order: OrderRequest):
+async def place_order(order: OrderRequest, request: Request):
     """
     Place a trading order on Upstox
     
@@ -248,6 +260,7 @@ async def place_order(order: OrderRequest):
 )
 @limiter.limit("60/minute")
 async def get_market_quote(
+    request: Request,
     symbol: str = Query(..., example="NSE_EQ|INE155A01022", description="Instrument key")
 ):
     """
@@ -303,7 +316,7 @@ class RefreshTokenRequest(BaseModel):
     description="Get a new access token using a valid refresh token"
 )
 @limiter.limit("10/minute")
-async def refresh_access_token(request: RefreshTokenRequest):
+async def refresh_access_token(request: Request, token_request: RefreshTokenRequest):
     """
     Refresh expired access token using refresh token
     
@@ -318,7 +331,7 @@ async def refresh_access_token(request: RefreshTokenRequest):
     """
     try:
         # Decode and validate refresh token
-        payload = jwt_handler.decode_token(request.refresh_token)
+        payload = jwt_handler.decode_token(token_request.refresh_token)
         
         # Verify it's a refresh token (not access token)
         if not jwt_handler.verify_token_type(payload, "refresh"):
