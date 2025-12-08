@@ -73,8 +73,9 @@ def calculate_total_quantity(lots: int, symbol: str) -> int:
     Returns:
         Total quantity (lots * lot_size)
     """
-    lot_size = get_lot_size(symbol)
-    return lots * lot_size
+    # lot_size = get_lot_size(symbol)
+    # return lots * lot_size
+    return lots
 
 
 def calculate_premium(price: Decimal, quantity: int) -> Decimal:

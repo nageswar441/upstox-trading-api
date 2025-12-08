@@ -7,7 +7,9 @@ from decimal import Decimal
 from typing import List, Optional
 from datetime import datetime
 import logging
+import httpx
 
+from config import UPSTOX_API_TOKEN
 from .models import (
     OptionsOrderRequest,
     OptionsOrderResponse,
@@ -21,7 +23,8 @@ from .utils import (
     is_trading_hours,
     validate_strike_price,
     calculate_breakeven_straddle,
-    calculate_max_profit_loss
+    calculate_max_profit_loss,
+    format_option_symbol
 )
 
 logger = logging.getLogger(__name__)
@@ -141,20 +144,91 @@ class OptionsOrderService:
         # Calculate total quantity
         total_qty = calculate_total_quantity(request.quantity, request.symbol)
         
-        # Simulate order placement (replace with actual Upstox API call)
-        order_id = f"ORD_{datetime.now().strftime('%Y%m%d%H%M%S')}_{option_type.value}"
-        
-        # Mock price for simulation
-        mock_price = Decimal("150.50") if option_type == OptionType.CE else Decimal("145.25")
-        
-        return OrderLeg(
-            option_type=option_type,
-            strike_price=request.strike_price,
-            order_id=order_id,
-            status="COMPLETE",
-            price=mock_price if price_config.order_type.value == "MARKET" else price_config.price,
-            quantity=total_qty
+        # Construct instrument token from request parameters
+        # Format: NSE_FO|{instrument_token}
+        # Note: In production, you may need to fetch the actual instrument token from Upstox instrument master
+        # For now, we'll construct a symbol and use it (you may need to resolve this to actual token)
+        expiry_str = request.expiry_date.strftime("%Y-%m-%d")
+        option_symbol = format_option_symbol(
+            request.symbol,
+            expiry_str,
+            int(request.strike_price),
+            option_type.value
         )
+        
+        # TODO: Resolve option_symbol to actual instrument_token (e.g., "NSE_FO|43919")
+        # For now, we'll use a placeholder - you'll need to implement instrument token resolution
+        # This could be done via Upstox's instrument master API or caching
+        # instrument_token = f"NSE_FO|{option_symbol}"  # Placeholder - needs actual token resolution
+        instrument_token = request.instrument_token
+        # Prepare order payload for Upstox HFT API
+        payload = {
+            "quantity": total_qty,
+            "product": "D",  # D = Delivery, I = Intraday
+            "validity": request.validity.value,
+            "price": float(price_config.price) if price_config.price else 0,
+            "tag": request.strategy_id or "",
+            "instrument_token": instrument_token,
+            "order_type": price_config.order_type.value,
+            "transaction_type": request.transaction_type.value,
+            "disclosed_quantity": request.disclosed_quantity or 0,
+            "trigger_price": float(price_config.trigger_price) if price_config.trigger_price else 0,
+            "is_amo": request.is_amo or False,
+            "slice": True  # Enable order slicing for large orders
+        }
+        
+        # Prepare headers
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {UPSTOX_API_TOKEN}"
+        }
+        
+        # HFT API endpoint
+        url = "https://api-hft.upstox.com/v3/order/place"
+        
+        logger.info(f"Placing {option_type.value} order: {request.symbol} {request.strike_price} @ {price_config.order_type.value}")
+        logger.debug(f"Payload: {payload}")
+        
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                result = response.json()
+                
+                logger.info(f"Order placed successfully: {result}")
+                
+                # Extract order details from response
+                # Adjust these fields based on actual Upstox API response structure
+                order_id = result.get("data", {}).get("order_id") or result.get("order_id", "")
+                order_status = result.get("data", {}).get("status") or result.get("status", "PENDING")
+                executed_price = result.get("data", {}).get("price") or result.get("price")
+                
+                return OrderLeg(
+                    option_type=option_type,
+                    strike_price=request.strike_price,
+                    order_id=order_id if order_id else f"ORD_{datetime.now().strftime('%Y%m%d%H%M%S')}_{option_type.value}",
+                    status=order_status,
+                    price=Decimal(str(executed_price)) if executed_price else (price_config.price if price_config.price else None),
+                    quantity=total_qty
+                )
+        
+        except httpx.TimeoutException:
+            logger.error("Upstox HFT API timeout while placing order")
+            raise ValueError("Order placement timeout - please try again")
+        
+        except httpx.HTTPStatusError as e:
+            error_detail = e.response.text
+            logger.error(f"Order placement failed: {e.response.status_code} - {error_detail}")
+            raise ValueError(f"Order failed: {error_detail}")
+        
+        except httpx.RequestError as e:
+            logger.error(f"Network error during order placement: {str(e)}")
+            raise ValueError("Failed to connect to Upstox API")
+        
+        except Exception as e:
+            logger.error(f"Unexpected error placing order: {str(e)}")
+            raise ValueError(f"Failed to place order: {str(e)}")
     
     def _calculate_total_premium(self, orders: List[OrderLeg]) -> Optional[Decimal]:
         """Calculate total premium for all orders.

@@ -7,6 +7,7 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from enum import Enum
 from typing import Optional, List
+import re
 from pydantic import BaseModel, Field, validator, root_validator
 
 
@@ -88,12 +89,13 @@ class OptionsOrderRequest(BaseModel):
     
     # Optional fields
     disclosed_quantity: Optional[int] = Field(None, ge=0, description="Disclosed quantity for iceberg orders")
-    is_amo: bool = Field(False, description="After Market Order flag")
+    is_amo: Optional[bool] = Field(False, description="After Market Order flag")
     strategy_id: Optional[str] = Field(None, description="Strategy ID for multi-leg orders")
     target_profit_percent: Optional[Decimal] = Field(None, gt=0, le=1000, description="Target profit percentage")
     stop_loss_percent: Optional[Decimal] = Field(None, gt=0, le=100, description="Stop loss percentage")
-    trailing_sl: bool = Field(False, description="Enable trailing stop loss")
-
+    trailing_sl: Optional[bool] = Field(False, description="Enable trailing stop loss")
+    instrument_token: Optional[str] = Field(None, description="Instrument token for the option")
+    
     @validator('symbol')
     def validate_symbol(cls, v):
         """Validate and uppercase symbol"""
