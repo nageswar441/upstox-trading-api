@@ -13,6 +13,7 @@ from models import OrderRequest, OrderResponse, AccountInfo, MarketFeedResponse
 from webhook_handler import router as webhook_router
 from pydantic import BaseModel
 from auth.jwt_handler import jwt_handler
+from auth.router import router as auth_router
 from websocket_handler import router as websocket_router, manager
 from options import options_router
 
@@ -61,6 +62,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Include routers
 app.include_router(webhook_router)
 app.include_router(websocket_router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api/v1")
 app.include_router(options_router)  # Options trading API
 
 
